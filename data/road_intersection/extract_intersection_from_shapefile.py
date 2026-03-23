@@ -91,8 +91,10 @@ def get_intersection_df(roads_preprocessed, roads_shp):
     # Efficiently handle all roads within 330m of each intersection, but only one intersection per pair within 100m
     new_rows = []
     intersection_registry = {}
-    distance_threshold = 0.06  # ~6km in degrees (approx, at equator)
-    dedup_threshold = 0.06  # ~6km in degrees (approx, at equator)
+    distance_threshold_meters = 1000
+    distance_threshold = (distance_threshold_meters / 10000) * 0.09
+    dedup_threshold_meters = 2000
+    dedup_threshold = (dedup_threshold_meters / 10000) * 0.09
 
     ijk = 0
     for idx, intersection in nodes.iterrows():

@@ -21,10 +21,8 @@ else:
     import extract_intersection_ben as extract_intersection
     # raise ValueError("Invalid choice. Please enter 1, 2, or 3.")
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
-roads_csv = os.path.join(BASE_DIR, "data", "input_dataset_reformatting", "_roads3.csv")
-bmms_xlsx = os.path.join(
-    BASE_DIR, "data", "input_dataset_reformatting", "BMMS_overview.xlsx"
-)
+roads_csv = os.path.join(BASE_DIR, "data", "road_intersection", "_roads3.csv")
+bmms_xlsx = os.path.join(BASE_DIR, "data", "road_intersection", "BMMS_overview.xlsx")
 road_shp_path = os.path.join(
     BASE_DIR, "data", "road_intersection", "road_gis_data", "roads.shp"
 )
@@ -414,10 +412,10 @@ def main():
     roads_raw = pd.read_csv(roads_csv)
     bmms_raw = xlsx_tools.open_xlsx(bmms_xlsx)
     roads_shp = gpd.read_file(road_shp_path)
-    roads_shp = roads_shp.drop(
-        columns=["osm_id", "type", "ref", "oneway", "bridge", "maxspeed"]
-    )
-    roads_shp = roads_shp.to_crs(epsg=4326)
+    # roads_shp = roads_shp.drop(
+    #     columns=["osm_id", "type", "ref", "oneway", "bridge", "maxspeed"]
+    # )
+    roads_shp = roads_shp.set_crs(epsg=4326)
     print(f"Opened {roads_csv}, {bmms_xlsx} and {road_shp_path}")
 
     # Preprocess BMMS into roads3-like points, resolve duplicates, and prepare BMMS merge table.
