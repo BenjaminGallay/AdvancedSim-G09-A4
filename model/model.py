@@ -1,4 +1,5 @@
 import os
+import time
 
 import analytical_recorder
 import matplotlib.pyplot as plt
@@ -13,6 +14,7 @@ speed = 48 * 1000 / 60
 
 
 def generate_graph():
+    start = time.time()
     """
     generate the simulation model according to the csv file component information
 
@@ -56,7 +58,7 @@ def generate_graph():
     n_roads = [road for road in all_roads if road[0] == "N"]
     # roads = ["N1", "N102", "N103"]
     speed = 48 * 1000 / 60
-    graph = nx.DiGraph()
+    graph = nx.Graph()
     breakdown_probabilities = [0.05, 0.1, 0.2, 0.4]
 
     df_objects_all = []
@@ -91,7 +93,7 @@ def generate_graph():
                 # We add a node corresponding to the element and link it to the previous node if they are on the same road
                 graph.add_node(
                     row["id"],
-                    road=row["road"],
+                    road={row["road"]},
                     type=model_type,
                     lat=row["lat"],
                     lon=row["lon"],
@@ -101,14 +103,6 @@ def generate_graph():
                         current_edge_start["id"],
                         row["id"],
                         weight=current_edge_weight,
-                        ids=current_edge_id_list,
-                        mean_delay=current_edge_mean_bridge_delay,
-                    )
-                    graph.add_edge(
-                        row["id"],
-                        current_edge_start["id"],
-                        weight=current_edge_weight,
-                        ids=current_edge_id_list[::-1],
                         mean_delay=current_edge_mean_bridge_delay,
                     )
                 current_edge_start = {"road": row["road"], "id": row["id"]}
@@ -120,7 +114,7 @@ def generate_graph():
                 # We add a node corresponding to the element and link it to the previous node if they are on the same road
                 graph.add_node(
                     row["id"],
-                    road=row["road"],
+                    road={row["road"]},
                     type=model_type,
                     lat=row["lat"],
                     lon=row["lon"],
@@ -130,14 +124,6 @@ def generate_graph():
                         current_edge_start["id"],
                         row["id"],
                         weight=current_edge_weight,
-                        ids=current_edge_id_list,
-                        mean_delay=current_edge_mean_bridge_delay,
-                    )
-                    graph.add_edge(
-                        row["id"],
-                        current_edge_start["id"],
-                        weight=current_edge_weight,
-                        ids=current_edge_id_list[::-1],
                         mean_delay=current_edge_mean_bridge_delay,
                     )
                 current_edge_start = {"road": row["road"], "id": row["id"]}
@@ -149,7 +135,7 @@ def generate_graph():
                 # We add a node corresponding to the element and link it to the previous node if they are on the same road
                 graph.add_node(
                     row["id"],
-                    road=row["road"],
+                    road={row["road"]},
                     type=model_type,
                     lat=row["lat"],
                     lon=row["lon"],
@@ -159,14 +145,6 @@ def generate_graph():
                         current_edge_start["id"],
                         row["id"],
                         weight=current_edge_weight,
-                        ids=current_edge_id_list,
-                        mean_delay=current_edge_mean_bridge_delay,
-                    )
-                    graph.add_edge(
-                        row["id"],
-                        current_edge_start["id"],
-                        weight=current_edge_weight,
-                        ids=current_edge_id_list[::-1],
                         mean_delay=current_edge_mean_bridge_delay,
                     )
                 current_edge_start = {"road": row["road"], "id": row["id"]}
@@ -204,34 +182,77 @@ def generate_graph():
                         current_edge_start["id"],
                         row["id"],
                         weight=current_edge_weight,
-                        ids=current_edge_id_list,
-                        mean_delay=current_edge_mean_bridge_delay,
-                    )
-                    graph.add_edge(
-                        row["id"],
-                        current_edge_start["id"],
-                        weight=current_edge_weight,
-                        ids=current_edge_id_list[::-1],
                         mean_delay=current_edge_mean_bridge_delay,
                     )
                 current_edge_start = {"road": row["road"], "id": row["id"]}
                 current_edge_weight = 0
                 current_edge_id_list = []
                 current_edge_mean_bridge_delay = 0
+    print("delta", time.time() - start)
+    print(len(list(graph.nodes)))
+    draw_graph(graph)
+    graph = prune_graph(graph, "weight")
+    print(len(list(graph.nodes)))
+    draw_graph(graph)
+    return graph
+
+
+def prune_graph(graph, weight_attr="weight"):
+    # We iterate until no more degree-2 nodes exist
+    changed = True
+    while changed:
+        changed = False
+        for node in list(graph.nodes()):
+            if graph.degree(node) != 2:
+                continue
+
+            neighbors = list(graph.neighbors(node))
+            u, v = neighbors
+
+            # graphet weights (default = 1 if missing)
+            w1 = graph[node][u].get(weight_attr, 1)
+            w2 = graph[node][v].get(weight_attr, 1)
+            new_weight = w1 + w2
+
+            # If edge already exists, sum weights
+            if graph.has_edge(u, v):
+                existing_weight = graph[u][v].get(weight_attr, 1)
+                graph[u][v][weight_attr] = existing_weight + new_weight
+            else:
+                graph.add_edge(u, v, **{weight_attr: new_weight})
+
+            graph.remove_node(node)
+            changed = True
+            break  # restart iteration (graph changed)
     return graph
 
 
 # draws the graph of the road network
 def draw_graph(graph):
     pos = {n: (d["lon"], d["lat"]) for n, d in graph.nodes(data=True)}
-    nx.draw_networkx_nodes(graph, pos, node_size=20, node_color="purple")
+
+    # Assign colors and sizes to nodes depending on type of road
+    colors, sizes = [], []
+    for n, d in graph.nodes(data=True):
+        set = d.get("road")
+        road_types = [road[0] for road in set]
+        if "N" in road_types:
+            colors.append("purple")
+            sizes.append(20)
+        elif "R" in road_types:
+            colors.append("purple")
+            sizes.append(10)
+        else:
+            colors.append("purple")
+            sizes.append(5)
+
+    nx.draw_networkx_nodes(graph, pos, node_size=sizes, node_color=colors)
     nx.draw_networkx_edges(graph, pos, edge_color="turquoise", arrows=False)
     plt.show()
-    # check_is_graph_connected()
     return
 
 
-# Given a source and a sink, sets the shortest (directed!) path between the two in the path_ids_dict as a list of ids
+# graphiven a source and a sink, sets the shortest (directed!) path between the two in the path_ids_dict as a list of ids
 def update_path_dict(graph, source, sink):
     if not nx.has_path(graph, source, sink):
         print("ALLEEEEEEEEEEEEEEEEEEEEEEEEEEEEEERT", source, sink)
@@ -290,5 +311,4 @@ def update_path_dict(graph, source, sink):
 #     return get_random_route(graph, source)
 
 graph = generate_graph()
-draw_graph(graph)
 # EOF -----------------------------------------------------------
