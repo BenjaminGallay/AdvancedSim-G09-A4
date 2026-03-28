@@ -26,6 +26,7 @@ bmms_xlsx = os.path.join(BASE_DIR, "data", "road_intersection", "BMMS_overview.x
 road_shp_path = os.path.join(
     BASE_DIR, "data", "road_intersection", "road_gis_data", "roads.shp"
 )
+traffic_csv = os.path.join(BASE_DIR, "data", "traffic", "traffic_data_all_roads.csv")
 out_csv = os.path.join(BASE_DIR, "data", "roads.csv")
 out_csv_intermediate = os.path.join(BASE_DIR, "data", "roads_int.csv")
 
@@ -342,6 +343,51 @@ def build_sourcesinks(df_roads):
     return starts, ends
 
 
+def fill_traffic_data(df_out, traffic_df):
+    # Add all TRAFFIC_COLUMNS from traffic_df to df_out, matching by road and cumsum chainage
+    TRAFFIC_COLUMNS = [
+        "Heavy Truck", "Medium Truck", "Small Truck", "Large Bus", "Medium Bus", "Micro Bus", "Utility", "Car", "Auto Rickshaw", "Motor Cycle", "Bi-Cycle", "Cycle Rickshaw", "Cart", "Motorized", "Non Motorized", "Total AADT", "(AADT)"
+    ]
+
+    # Only consider link/bridge for cumsum
+    df_out = df_out.copy()
+    mask = df_out["model_type"].isin(["link", "bridge"])
+    df_out["_length_for_cumsum"] = 0.0
+    df_out.loc[mask, "_length_for_cumsum"] = df_out.loc[mask, "length"].fillna(0)
+    # Compute cumsum chainage for each road
+    df_out["_cumsum_chainage"] = df_out.groupby("road")['_length_for_cumsum'].cumsum()
+
+    # Prepare columns in df_out
+    for col in TRAFFIC_COLUMNS:
+        if col not in df_out.columns:
+            df_out[col] = pd.NA
+
+    # For each segment, assign traffic columns from the closest traffic interval (by chainage)
+    for idx, seg in df_out.iterrows():
+        road = seg["road"]
+        cumsum = seg["_cumsum_chainage"]
+        # Get all traffic rows for this road
+        tdf = traffic_df[traffic_df["road"] == road]
+        if tdf.empty:
+            continue
+        # Find intervals where cumsum falls within [chainage_start, chainage_end)
+        in_interval = tdf[(tdf["chainage_start"] <= cumsum) & (cumsum < tdf["chainage_end"])]
+        if not in_interval.empty:
+            trow = in_interval.iloc[0]
+        else:
+            # Find the closest interval by minimal distance to either endpoint
+            dists = tdf.apply(lambda row: min(abs(row["chainage_start"] - cumsum), abs(row["chainage_end"] - cumsum)), axis=1)
+            trow = tdf.loc[dists.idxmin()]
+        for col in TRAFFIC_COLUMNS:
+            if col in trow:
+                df_out.at[idx, col] = trow[col]
+
+    # Remove helper columns
+    df_out = df_out.drop(columns=["_length_for_cumsum", "_cumsum_chainage"])
+    return df_out
+
+
+
 def merge_links(df_out):
     # Merge consecutive "link" segments on the same road into longer links.
     # Bridges/ferries/sourcesinks are kept as-is.
@@ -416,6 +462,7 @@ def main():
     #     columns=["osm_id", "type", "ref", "oneway", "bridge", "maxspeed"]
     # )
     roads_shp = roads_shp.set_crs(epsg=4326)
+    traffic_df = pd.read_csv(traffic_csv)
     print(f"Opened {roads_csv}, {bmms_xlsx} and {road_shp_path}")
 
     # Preprocess BMMS into roads3-like points, resolve duplicates, and prepare BMMS merge table.
@@ -438,6 +485,9 @@ def main():
     df_out = df_out.sort_values(
         ["road", "_chainage_order"], kind="mergesort"
     ).reset_index(drop=True)
+
+
+    df_out = fill_traffic_data(df_out, traffic_df)
 
     # Merge links for efficiency.
     df_out = merge_links(df_out)
