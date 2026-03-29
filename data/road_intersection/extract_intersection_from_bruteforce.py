@@ -68,7 +68,7 @@ def get_intersection_df(roads_preprocessed, roads_shp):
 
 
     # --- Detect intersections between close road pairs ---
-    intersection_threshold_deg = 0.018  # ~2km (0.0045 deg at equator)
+    intersection_threshold_deg = 0.0045  # ~500m (0.0045 deg at equator)
     dedup_threshold_deg = 0.018  # ~2km (same as proximity threshold)
     intersections = []  # (road1, idx1, road2, idx2, lat, lon)
     intersection_registry = {}  # (road1, road2) -> list of (lat, lon)
@@ -78,31 +78,23 @@ def get_intersection_df(roads_preprocessed, roads_shp):
         arr_lat1, arr_lon1 = road_latlon[road1]
         for road2 in close_roads:
             arr_lat2, arr_lon2 = road_latlon[road2]
-            pair_key = tuple(sorted([road1, road2]))
-            candidate = None
-            min_dist = None
             for i1, (lat1, lon1) in enumerate(zip(arr_lat1, arr_lon1)):
                 for i2, (lat2, lon2) in enumerate(zip(arr_lat2, arr_lon2)):
                     d = np.sqrt((lat1 - lat2) ** 2 + (lon1 - lon2) ** 2)
                     if d <= intersection_threshold_deg:
-                        # Check if this is closer than any previous candidate within dedup threshold
-                        if intersection_registry.get(pair_key):
-                            # Only compare to the closest existing intersection
-                            prev_lat, prev_lon = intersection_registry[pair_key][0]
-                            prev_d = np.sqrt((lat1 - prev_lat) ** 2 + (lon1 - prev_lon) ** 2)
-                            if prev_d < dedup_threshold_deg:
-                                if d < min_dist:
-                                    candidate = (road1, i1, road2, i2, lat1, lon1)
-                                    min_dist = d
-                                continue
-                        if (min_dist is None) or (d < min_dist):
-                            candidate = (road1, i1, road2, i2, lat1, lon1)
-                            min_dist = d
-            if candidate:
-                # Register only the closest intersection for this pair within dedup threshold
-                _, _, _, _, lat1, lon1 = candidate
-                intersection_registry[pair_key] = [(lat1, lon1)]
-                intersections.append(candidate)
+                        # Deduplication: check if an intersection for this pair exists within 2km
+                        pair_key = tuple(sorted([road1, road2]))
+                        already = False
+                        if pair_key in intersection_registry:
+                            for prev_lat, prev_lon in intersection_registry[pair_key]:
+                                if np.sqrt((lat1 - prev_lat) ** 2 + (lon1 - prev_lon) ** 2) < dedup_threshold_deg:
+                                    already = True
+                                    break
+                        if already:
+                            continue
+                        # Register this intersection
+                        intersection_registry.setdefault(pair_key, []).append((lat1, lon1))
+                        intersections.append((road1, i1, road2, i2, lat1, lon1))
 
     print(f"Detected {len(intersections)} unique intersections between close road pairs.")
     #for road1, i1, road2, i2, lat, lon in intersections:

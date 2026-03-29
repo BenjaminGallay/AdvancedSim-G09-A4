@@ -10,7 +10,8 @@ print("please choose intersection extraction method:")
 print("1. From CSV")
 print("2. From Shapefile")
 print("3. From type/name")
-choice = input("Enter your choice (1, 2, or 3): ")
+print("4. Brute-force spatial (best method and faster)")
+choice = input("Enter your choice (1, 2, 3, or 4): ")
 if choice == "1":
     import extract_intersection_from_road as extract_intersection
 elif choice == "2":
@@ -20,8 +21,7 @@ elif choice == "3":
 elif choice == "4":
     import extract_intersection_from_bruteforce as extract_intersection
 else:
-    import extract_intersection_ben as extract_intersection
-    # raise ValueError("Invalid choice. Please enter 1, 2, or 3.")
+    raise ValueError("Invalid choice. Please enter 1, 2, 3, or 4.")
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
 roads_csv = os.path.join(BASE_DIR, "data", "road_intersection", "_roads3.csv")
 bmms_xlsx = os.path.join(BASE_DIR, "data", "road_intersection", "BMMS_overview.xlsx")
@@ -465,12 +465,13 @@ def main():
         ["road", "_chainage_order"], kind="mergesort"
     ).reset_index(drop=True)
 
-
+    print("Filling traffic data...")
     df_out = fill_traffic_data(df_out, traffic_df)
 
     # Merge links for efficiency.
+
+    print(f"Merging links")
     df_out = merge_links(df_out)
-    print(f"Merged links")
 
     # Finalize output IDs.
     df_out["name"] = df_out["id"]
@@ -479,19 +480,6 @@ def main():
     assign_intersection_numeric_ids(df_out)
 
     df_out = df_out.drop(columns=["_chainage_order"])
-
-    for main_road in ["N1", "N2"]:
-        intersection_mask = (df_out["road"] == main_road) & (
-            df_out["model_type"] == "intersection"
-        )
-        intersection_ids = df_out.loc[intersection_mask, "id"].unique()
-        paired_roads = set()
-        for iid in intersection_ids:
-            paired = df_out[(df_out["id"] == iid) & (df_out["road"] != main_road)][
-                "road"
-            ].unique()
-            paired_roads.update(paired)
-        print(f"Roads paired with {main_road} via intersection: {paired_roads}")
 
     df_out.to_csv(out_csv, index=False)
     print(f"Wrote {len(df_out)} rows to {out_csv}")
