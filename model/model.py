@@ -45,6 +45,7 @@ def generate_graph():
     current_edge_start = {"road": None, "id": None}
     current_edge_weight = 0
     current_edge_bridge_conditions = {0: 0, 1: 0, 2: 0, 3: 0}
+    current_edge_traffic = {0: 0}
 
     for df in df_objects_all:
         for _, row in df.iterrows():  # index, row in ...
@@ -74,10 +75,12 @@ def generate_graph():
                         shutdown_probability=get_edge_shutdown_probability(
                             current_edge_bridge_conditions
                         ),
+                        traffic=max(current_edge_traffic, key=current_edge_traffic.get),
                     )
                 current_edge_start = {"road": row["road"], "id": row["id"]}
                 current_edge_weight = 0
                 current_edge_bridge_conditions = {0: 0, 1: 0, 2: 0, 3: 0}
+                current_edge_traffic = {0: 0}
 
             elif model_type == "sink":
                 # We add a node corresponding to the element and link it to the previous node if they are on the same road
@@ -96,10 +99,12 @@ def generate_graph():
                         shutdown_probability=get_edge_shutdown_probability(
                             current_edge_bridge_conditions
                         ),
+                        traffic=max(current_edge_traffic, key=current_edge_traffic.get),
                     )
                 current_edge_start = {"road": row["road"], "id": row["id"]}
                 current_edge_weight = 0
                 current_edge_bridge_conditions = {0: 0, 1: 0, 2: 0, 3: 0}
+                current_edge_traffic = {0: 0}
 
             elif model_type == "sourcesink":
                 # We add a node corresponding to the element and link it to the previous node if they are on the same road
@@ -118,17 +123,27 @@ def generate_graph():
                         shutdown_probability=get_edge_shutdown_probability(
                             current_edge_bridge_conditions
                         ),
+                        traffic=max(current_edge_traffic, key=current_edge_traffic.get),
                     )
                 current_edge_start = {"road": row["road"], "id": row["id"]}
                 current_edge_weight = 0
                 current_edge_bridge_conditions = {0: 0, 1: 0, 2: 0, 3: 0}
+                current_edge_traffic = {0: 0}
 
             elif model_type == "bridge":
                 current_edge_weight += row["length"]
                 current_edge_bridge_conditions[row["condition"]] += 1
+                if row["(AADT)"] in current_edge_traffic:
+                    current_edge_traffic[row["(AADT)"]] += 1
+                else:
+                    current_edge_traffic[row["(AADT)"]] = 0
 
             elif model_type == "link":
                 current_edge_weight += row["length"]
+                if row["(AADT)"] in current_edge_traffic:
+                    current_edge_traffic[row["(AADT)"]] += 1
+                else:
+                    current_edge_traffic[row["(AADT)"]] = 0
 
             elif model_type == "intersection":
                 # Intersection elements are stored in multiple roads, it is necessary to check wether it is already in the graph or not.
@@ -152,10 +167,12 @@ def generate_graph():
                         shutdown_probability=get_edge_shutdown_probability(
                             current_edge_bridge_conditions
                         ),
+                        traffic=max(current_edge_traffic, key=current_edge_traffic.get),
                     )
                 current_edge_start = {"road": row["road"], "id": row["id"]}
                 current_edge_weight = 0
                 current_edge_bridge_conditions = {0: 0, 1: 0, 2: 0, 3: 0}
+                current_edge_traffic = {0: 0}
 
     print("delta", time.time() - start)
     # graph = prune_graph(graph, "weight")
@@ -216,31 +233,39 @@ def draw_graph(graph):
     for n, d in graph.nodes(data=True):
         roads = d.get("road", [])
         road_types = [road[0] for road in roads]
-        if not nx.has_path(graph, n, 1000000):
+        if False and not nx.has_path(graph, n, 1000000):
             colors.append("red")
             sizes.append(50)
         else:
             if "N" in road_types:
-                colors.append("purple")
+                colors.append("black")
                 sizes.append(20)
             elif "R" in road_types:
-                colors.append("purple")
-                sizes.append(10)
-            else:
-                colors.append("purple")
+                colors.append("black")
                 sizes.append(5)
+            else:
+                colors.append("black")
+                sizes.append(2)
 
     # Edge data
     edges = list(graph.edges(data=True))
     probs = np.array([d.get("shutdown_probability", 0) for _, _, d in edges])
-    plt.hist(
-        [np.log10(prob) for prob in probs if prob > 0],
-        color="green",
-        edgecolor="black",
-        bins=10,
-    )
-    plt.title("Histogram of shutdown probabilities")
-    plt.show()
+
+    traffic = np.array([d.get("traffic", 1) for _, _, d in edges])
+    traffic_safe = np.clip(traffic, 1e-3, None)
+    log_t = np.log2(traffic_safe)
+    log_min, log_max = log_t.min(), log_t.max()
+    traffic_scaled = (log_t - log_min) / (log_max - log_min + 1e-9)
+    widths = 0.1 + traffic_scaled * 4
+
+    # plt.hist(
+    #     [np.log10(prob) for prob in probs if prob > 0],
+    #     color="green",
+    #     edgecolor="black",
+    #     bins=10,
+    # )
+    # plt.title("Histogram of shutdown probabilities")
+    # plt.show()
     # print([float(np.log10(prob)) for prob in probs])
 
     # --- LOG SCALING ---
@@ -263,10 +288,10 @@ def draw_graph(graph):
         pos,
         edgelist=[(u, v) for u, v, _ in edges],
         edge_color=probs_scaled,
-        edge_cmap=plt.cm.RdYlGn_r,  # green → red
+        edge_cmap=plt.cm.plasma,  # green → red
         edge_vmin=0,
         edge_vmax=1,
-        width=1.5,
+        width=widths,
         alpha=0.9,
         arrows=False,
         ax=ax,
@@ -274,7 +299,7 @@ def draw_graph(graph):
 
     # --- COLORBAR (log scale labels!) ---
     norm = mcolors.LogNorm(vmin=eps, vmax=1)
-    sm = plt.cm.ScalarMappable(cmap=plt.cm.RdYlGn_r, norm=norm)
+    sm = plt.cm.ScalarMappable(cmap=plt.cm.plasma, norm=norm)
     sm.set_array([])
 
     cbar = fig.colorbar(sm, ax=ax)
@@ -293,7 +318,6 @@ def get_alternative_paths(graph):
     edges_list = graph.edges()
     alternative_paths = {}
     for edge in edges_list:
-        print(edge)
         edge_attributes = graph.edges[edge]
         graph.remove_edge(*edge)
         if nx.has_path(graph, edge[0], edge[1]):
@@ -327,4 +351,5 @@ def get_alternative_paths(graph):
 
 graph = generate_graph()
 get_alternative_paths(graph)
+draw_graph(graph)
 # EOF -----------------------------------------------------------
