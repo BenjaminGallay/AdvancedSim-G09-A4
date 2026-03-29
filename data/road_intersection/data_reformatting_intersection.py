@@ -206,9 +206,6 @@ def build_segments(df_roads, bmms_sub, intersection_df):
     df["chainage_next"] = df.groupby("road")["chainage"].shift(-1)
     df["gap_next"] = df.groupby("road")["gap"].shift(-1)
 
-    # print nbr of intersection after build_segments
-    nbr_after_build = len(df[df["type"] == "intersection"])
-    print(nbr_after_build)
 
     # 2) Join BMMS metadata on (road, current lrp), then backfill from next lrp.
     #    This handles cases where BMMS data is recorded on the bridge end LRP.
@@ -220,24 +217,13 @@ def build_segments(df_roads, bmms_sub, intersection_df):
         validate="many_to_one",
     )
 
-    # print number of intersection with BMMS data after merge
-    nbr_after_merge = len(df[df["type"] == "intersection"])
-    print(nbr_after_merge)
-
     bmms_backfill(bmms_sub, df)
-    # print number of intersection with BMMS data after backfill
-    nbr_after_backfill = len(df[df["type"] == "intersection"])
-    print(nbr_after_backfill)
 
     # 3) Derive core segment properties.
     #    - type from gap pattern
     #    - length from chainage (or BMMS for bridges)
     fill_type(df)
     fill_length(df)
-
-    # print number of intersection with length after fill_length
-    nbr_after_length = len(df[df["model_type"] == "intersection"])
-    print(nbr_after_length)
 
     # 4) Keep all intersection rows, filter only link/bridge/ferry rows by lrp_next
     intersection_mask = df["model_type"] == "intersection"
@@ -254,18 +240,11 @@ def build_segments(df_roads, bmms_sub, intersection_df):
         + segments["lrp_next"].astype(str)
     )
 
-    # print number of intersection after keeping all
-    nbr_after_next = len(segments[segments["model_type"] == "intersection"])
-    print(nbr_after_next)
-
     # 5) Fill bridge-only fields.
     fill_condition(segments)
     fill_bridgedual(segments)
     fill_side_metrics(segments)
 
-    # print number of intersection with condition/bridgedual/side metrics after fill
-    nbr_after_fill = len(segments[segments["model_type"] == "intersection"])
-    print(nbr_after_fill)
     segments["_chainage_order"] = segments["chainage"]
 
     return segments[
@@ -365,18 +344,19 @@ def fill_traffic_data(df_out, traffic_df):
     # For each segment, assign traffic columns from the closest traffic interval (by chainage)
     for idx, seg in df_out.iterrows():
         road = seg["road"]
-        cumsum = seg["_cumsum_chainage"]
+        cumsum_m = seg["_cumsum_chainage"]
+        cumsum_km = cumsum_m / 1000.0  # Convert meters to kilometers
         # Get all traffic rows for this road
         tdf = traffic_df[traffic_df["road"] == road]
         if tdf.empty:
             continue
-        # Find intervals where cumsum falls within [chainage_start, chainage_end)
-        in_interval = tdf[(tdf["chainage_start"] <= cumsum) & (cumsum < tdf["chainage_end"])]
+        # Find intervals where cumsum_km falls within [chainage_start, chainage_end)
+        in_interval = tdf[(tdf["chainage_start"] <= cumsum_km) & (cumsum_km < tdf["chainage_end"])]
         if not in_interval.empty:
             trow = in_interval.iloc[0]
         else:
             # Find the closest interval by minimal distance to either endpoint
-            dists = tdf.apply(lambda row: min(abs(row["chainage_start"] - cumsum), abs(row["chainage_end"] - cumsum)), axis=1)
+            dists = tdf.apply(lambda row: min(abs(row["chainage_start"] - cumsum_km), abs(row["chainage_end"] - cumsum_km)), axis=1)
             trow = tdf.loc[dists.idxmin()]
         for col in TRAFFIC_COLUMNS:
             if col in trow:
@@ -488,6 +468,8 @@ def main():
 
 
     df_out = fill_traffic_data(df_out, traffic_df)
+    #save intermediate output to csv for inspection
+    df_out.to_csv(out_csv_intermediate, index=False)
 
     # Merge links for efficiency.
     df_out = merge_links(df_out)
