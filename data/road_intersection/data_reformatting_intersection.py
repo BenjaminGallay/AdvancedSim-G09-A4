@@ -17,6 +17,8 @@ elif choice == "2":
     import extract_intersection_from_shapefile as extract_intersection
 elif choice == "3":
     import extract_intersection_from_type as extract_intersection
+elif choice == "4":
+    import extract_intersection_from_bruteforce as extract_intersection
 else:
     import extract_intersection_ben as extract_intersection
     # raise ValueError("Invalid choice. Please enter 1, 2, or 3.")

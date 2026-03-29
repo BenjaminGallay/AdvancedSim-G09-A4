@@ -48,7 +48,17 @@ def get_intersection_df(roads_preprocessed, roads_shp):
         .drop_duplicates()
         .reset_index(drop=True)
     )
-    print(f"Identified {len(nodes)} unique intersection points from shapefile.")
+    # Filter nodes by longitude and latitude bounds
+    lon_min, lon_max = 88.125, 92.49
+    lat_min, lat_max = 20.78, 26.64
+    nodes = nodes[(nodes["lon"] >= lon_min) & (nodes["lon"] <= lon_max) & (nodes["lat"] >= lat_min) & (nodes["lat"] <= lat_max)]
+    # Remove bottom left square: lat < 23.5 and lon < 88.7
+    nodes = nodes[~((nodes["lat"] < 23.5) & (nodes["lon"] < 88.7))]
+    # Remove top right square: lat > 25.37 and lon > 88.9
+    nodes = nodes[~((nodes["lat"] > 25.37) & (nodes["lon"] > 88.9))]
+    print(f"Identified {len(nodes)} unique intersection points from shapefile after filtering by bounds and removing bottom left and top right squares.")
+
+    
 
     def interpolate_chainage_fast(road_lat, road_lon, road_chainage, lat, lon):
         dists = np.sqrt((road_lat - lat) ** 2 + (road_lon - lon) ** 2)
@@ -180,5 +190,24 @@ def get_intersection_df(roads_preprocessed, roads_shp):
         df_out = pd.DataFrame(crossing_rows)
     else:
         df_out = pd.DataFrame(columns=roads_csv.columns)
+
+    #plot the intersections for visual inspection --- IGNORE ---
+    import matplotlib.pyplot as plt
+    plt.figure(figsize=(10, 10))
+    plt.scatter(nodes["lon"], nodes["lat"], color="red", s=3, label="Intersections")
+    # also add road from road_lines for visual context
+    for road, line in road_lines.items():
+        x, y = line.xy
+        plt.plot(x, y, color="blue", linewidth=0.5, alpha=0.5)
+    #add intersection points from new_rows in green
+    if not df_out.empty:
+        plt.scatter(df_out["lon"], df_out["lat"], color="green", s=5, label="New Crossing Points")
+    plt.title("Identified Intersections from Shapefile")
+    plt.xlabel("Longitude")
+    plt.ylabel("Latitude")
+    plt.legend()
+    plt.grid()
+    plt.show()
+
 
     return df_out
