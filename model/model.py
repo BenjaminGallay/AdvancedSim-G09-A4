@@ -1,5 +1,6 @@
 import os
 import time
+from operator import is_not
 
 import matplotlib.colors as mcolors
 import matplotlib.pyplot as plt
@@ -158,7 +159,9 @@ def generate_graph():
 
     print("delta", time.time() - start)
     # graph = prune_graph(graph, "weight")
-    draw_graph(graph)
+    print(
+        list(nx.connected_components(graph)), len(list(nx.connected_components(graph)))
+    )
     return graph
 
 
@@ -205,31 +208,40 @@ def prune_graph(graph, weight_attr="weight", prob_attr="shutdown_probability"):
 
 # draws the graph of the road network
 def draw_graph(graph):
-    fig, ax = plt.subplots(figsize=(10, 10))
-
     # Positions
     pos = {n: (d["lon"], d["lat"]) for n, d in graph.nodes(data=True)}
 
     # Node styling
     colors, sizes = [], []
-    for _, d in graph.nodes(data=True):
+    for n, d in graph.nodes(data=True):
         roads = d.get("road", [])
         road_types = [road[0] for road in roads]
-
-        if "N" in road_types:
-            colors.append("purple")
-            sizes.append(20)
-        elif "R" in road_types:
-            colors.append("purple")
-            sizes.append(10)
+        if not nx.has_path(graph, n, 1000000):
+            colors.append("red")
+            sizes.append(50)
         else:
-            colors.append("purple")
-            sizes.append(5)
+            if "N" in road_types:
+                colors.append("purple")
+                sizes.append(20)
+            elif "R" in road_types:
+                colors.append("purple")
+                sizes.append(10)
+            else:
+                colors.append("purple")
+                sizes.append(5)
 
     # Edge data
     edges = list(graph.edges(data=True))
     probs = np.array([d.get("shutdown_probability", 0) for _, _, d in edges])
-    print([float(np.log10(prob)) for prob in probs])
+    plt.hist(
+        [np.log10(prob) for prob in probs if prob > 0],
+        color="green",
+        edgecolor="black",
+        bins=10,
+    )
+    plt.title("Histogram of shutdown probabilities")
+    plt.show()
+    # print([float(np.log10(prob)) for prob in probs])
 
     # --- LOG SCALING ---
     eps = 1e-3
@@ -243,6 +255,7 @@ def draw_graph(graph):
     probs_scaled = (log_probs - log_min) / (log_max - log_min)
 
     # --- DRAW ---
+    fig, ax = plt.subplots(figsize=(10, 10))
     nx.draw_networkx_nodes(graph, pos, node_size=sizes, node_color=colors, ax=ax)
 
     nx.draw_networkx_edges(
@@ -276,38 +289,30 @@ def draw_graph(graph):
     return
 
 
-# graphiven a source and a sink, sets the shortest (directed!) path between the two in the path_ids_dict as a list of ids
-def update_path_dict(graph, source, sink):
-    if not nx.has_path(graph, source, sink):
-        print("ALLEEEEEEEEEEEEEEEEEEEEEEEEEEEEEERT", source, sink)
-    nodes_list = nx.shortest_path(graph, source=source, target=sink, weight="weight")
-    path = []
-    route_mean_delay, length = 0, 0
-    for i in range(len(nodes_list) - 1):
-        path.append(nodes_list[i])
-        path += graph[nodes_list[i]][nodes_list[i + 1]]["ids"]
-        length += graph[nodes_list[i]][nodes_list[i + 1]]["weight"]
-        route_mean_delay += graph[nodes_list[i]][nodes_list[i + 1]]["mean_delay"]
-    path.append(nodes_list[-1])
-    # path_ids_dict[source, sink] = (path, length, route_mean_delay)
+def get_alternative_paths(graph):
+    edges_list = graph.edges()
+    alternative_paths = {}
+    for edge in edges_list:
+        print(edge)
+        edge_attributes = graph.edges[edge]
+        graph.remove_edge(*edge)
+        if nx.has_path(graph, edge[0], edge[1]):
+            shortest_path = nx.shortest_path(graph, edge[0], edge[1], weight="weight")
+            path_length = 0
+            for i in range(len(shortest_path) - 1):
+                path_length += graph.edges[(shortest_path[i], shortest_path[i + 1])][
+                    "weight"
+                ]
+                alternative_paths[edge] = path_length - edge_attributes["weight"]
+            print(path_length, edge_attributes["weight"], edge)
+        else:
+            alternative_paths[edge] = None
+        graph.add_edge(edge[0], edge[1], **edge_attributes)
+    print(
+        sum(v for v in alternative_paths.values() if v is not None)
+        / sum(1 for v in alternative_paths.values() if v is not None)
+    )
     return
-
-
-# gets a random route by choosing a random sink
-# def get_random_route(graph, source):
-#     """
-#     pick up a random route given an origin
-#     """
-#     while True:
-#         # different source and sink
-#         sink = random.choice(sinks)
-#         if sink is not source and nx.has_path(graph, source, sink):
-#             break
-#     # Ensures that each path is calculated at most once
-#     if (source, sink) not in path_ids_dict:
-#         update_path_dict(source, sink)
-
-#     return path_ids_dict[source, sink][0]
 
 
 # check if the graph is connected (for debugging)
@@ -320,19 +325,6 @@ def update_path_dict(graph, source, sink):
 #             )
 #             continue
 
-
-# computes the shortest path for all the pairs of roads extremities
-# def get_all_routes(graph):
-#     for source in sources:
-#         for sink in sinks:
-#             if (sink is not source) and nx.has_path(graph, source, sink):
-#                 update_path_dict(source, sink)
-#     return path_ids_dict
-
-
-# uses the random route choice
-# def get_route(graph, source):
-#     return get_random_route(graph, source)
-
 graph = generate_graph()
+get_alternative_paths(graph)
 # EOF -----------------------------------------------------------
