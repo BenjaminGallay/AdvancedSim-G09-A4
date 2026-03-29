@@ -454,9 +454,6 @@ def main():
     ).copy()
 
     # Build simulation rows: start, segments, end.
-    # keep track of number of intersection :
-    nbr_intersection = len(intersection_df[intersection_df["type"] == "intersection"])
-    print(nbr_intersection)
     segments = build_segments(roads_preprocessed, bmms_for_merge, intersection_df)
 
     starts, ends = build_sourcesinks(roads_preprocessed)
@@ -468,8 +465,6 @@ def main():
 
 
     df_out = fill_traffic_data(df_out, traffic_df)
-    #save intermediate output to csv for inspection
-    df_out.to_csv(out_csv_intermediate, index=False)
 
     # Merge links for efficiency.
     df_out = merge_links(df_out)
