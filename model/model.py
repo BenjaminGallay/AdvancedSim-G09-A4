@@ -28,7 +28,15 @@ def generate_graph():
     n12_roads = [road for road in all_roads if road[:2] == "N1"] + [
         road for road in all_roads if road[:2] == "N2"
     ]
+    r_roads = [road for road in all_roads if road[0] == "R"]
+    z_roads = [road for road in all_roads if road[0] == "Z"]
     graph = nx.Graph()
+
+    reroute_penalty_coefficients = {
+        "N": {"Heavy Truck": 1, "Medium Truck": 1, "Small Truck": 1},
+        "R": {"Heavy Truck": 5, "Medium Truck": 1, "Small Truck": 1},
+        "Z": {"Heavy Truck": 50, "Medium Truck": 1.25, "Small Truck": 1},
+    }
 
     df_objects_all = []
     for road in all_roads:
@@ -43,9 +51,13 @@ def generate_graph():
 
     # Store the information about the start of the segment of road the program is currently following
     current_edge_start = {"road": None, "id": None}
-    current_edge_weight = 0
+    current_edge_length = 0
     current_edge_bridge_conditions = {0: 0, 1: 0, 2: 0, 3: 0}
-    current_edge_traffic = {0: 0}
+    current_edge_traffic = {
+        "Heavy Truck": {0: 0},
+        "Medium Truck": {0: 0},
+        "Small Truck": {0: 0},
+    }
 
     for df in df_objects_all:
         for _, row in df.iterrows():  # index, row in ...
@@ -53,6 +65,12 @@ def generate_graph():
             model_type = row["model_type"].strip()
 
             name = row["name"]
+            traffic_weight = (
+                25 * row["Heavy Truck"]
+                + 10 * row["Medium Truck"]
+                + 5 * row["Small Truck"]
+            )
+            traffic_weight = row["Small Truck"]
             if pd.isna(name):
                 name = ""
             else:
@@ -68,19 +86,49 @@ def generate_graph():
                     lon=row["lon"],
                 )
                 if current_edge_start["road"] == row["road"]:
+                    heavy_truck_weight = (
+                        reroute_penalty_coefficients[road[0]]["Heavy Truck"]
+                        * current_edge_length
+                    )
+                    medium_truck_weight = (
+                        reroute_penalty_coefficients[road[0]]["Medium Truck"]
+                        * current_edge_length
+                    )
+                    small_truck_weight = (
+                        reroute_penalty_coefficients[road[0]]["Small Truck"]
+                        * current_edge_length
+                    )
                     graph.add_edge(
                         current_edge_start["id"],
                         row["id"],
-                        weight=current_edge_weight,
+                        length=current_edge_length,
                         shutdown_probability=get_edge_shutdown_probability(
                             current_edge_bridge_conditions
                         ),
-                        traffic=max(current_edge_traffic, key=current_edge_traffic.get),
+                        heavy_truck_traffic=max(
+                            current_edge_traffic["Heavy Truck"],
+                            key=current_edge_traffic["Heavy Truck"].get,
+                        ),
+                        medium_truck_traffic=max(
+                            current_edge_traffic["Medium Truck"],
+                            key=current_edge_traffic["Medium Truck"].get,
+                        ),
+                        small_truck_traffic=max(
+                            current_edge_traffic["Small Truck"],
+                            key=current_edge_traffic["Small Truck"].get,
+                        ),
+                        heavy_truck_weight=heavy_truck_weight,
+                        medium_truck_weight=medium_truck_weight,
+                        small_truck_weight=small_truck_weight,
                     )
                 current_edge_start = {"road": row["road"], "id": row["id"]}
-                current_edge_weight = 0
+                current_edge_length = 0
                 current_edge_bridge_conditions = {0: 0, 1: 0, 2: 0, 3: 0}
-                current_edge_traffic = {0: 0}
+                current_edge_traffic = {
+                    "Heavy Truck": {0: 0},
+                    "Medium Truck": {0: 0},
+                    "Small Truck": {0: 0},
+                }
 
             elif model_type == "sink":
                 # We add a node corresponding to the element and link it to the previous node if they are on the same road
@@ -92,19 +140,49 @@ def generate_graph():
                     lon=row["lon"],
                 )
                 if current_edge_start["road"] == row["road"]:
+                    heavy_truck_weight = (
+                        reroute_penalty_coefficients[road[0]]["Heavy Truck"]
+                        * current_edge_length
+                    )
+                    medium_truck_weight = (
+                        reroute_penalty_coefficients[road[0]]["Medium Truck"]
+                        * current_edge_length
+                    )
+                    small_truck_weight = (
+                        reroute_penalty_coefficients[road[0]]["Small Truck"]
+                        * current_edge_length
+                    )
                     graph.add_edge(
                         current_edge_start["id"],
                         row["id"],
-                        weight=current_edge_weight,
+                        length=current_edge_length,
                         shutdown_probability=get_edge_shutdown_probability(
                             current_edge_bridge_conditions
                         ),
-                        traffic=max(current_edge_traffic, key=current_edge_traffic.get),
+                        heavy_truck_traffic=max(
+                            current_edge_traffic["Heavy Truck"],
+                            key=current_edge_traffic["Heavy Truck"].get,
+                        ),
+                        medium_truck_traffic=max(
+                            current_edge_traffic["Medium Truck"],
+                            key=current_edge_traffic["Medium Truck"].get,
+                        ),
+                        small_truck_traffic=max(
+                            current_edge_traffic["Small Truck"],
+                            key=current_edge_traffic["Small Truck"].get,
+                        ),
+                        heavy_truck_weight=heavy_truck_weight,
+                        medium_truck_weight=medium_truck_weight,
+                        small_truck_weight=small_truck_weight,
                     )
                 current_edge_start = {"road": row["road"], "id": row["id"]}
-                current_edge_weight = 0
+                current_edge_length = 0
                 current_edge_bridge_conditions = {0: 0, 1: 0, 2: 0, 3: 0}
-                current_edge_traffic = {0: 0}
+                current_edge_traffic = {
+                    "Heavy Truck": {0: 0},
+                    "Medium Truck": {0: 0},
+                    "Small Truck": {0: 0},
+                }
 
             elif model_type == "sourcesink":
                 # We add a node corresponding to the element and link it to the previous node if they are on the same road
@@ -116,34 +194,66 @@ def generate_graph():
                     lon=row["lon"],
                 )
                 if current_edge_start["road"] == row["road"]:
+                    heavy_truck_weight = (
+                        reroute_penalty_coefficients[road[0]]["Heavy Truck"]
+                        * current_edge_length
+                    )
+                    medium_truck_weight = (
+                        reroute_penalty_coefficients[road[0]]["Medium Truck"]
+                        * current_edge_length
+                    )
+                    small_truck_weight = (
+                        reroute_penalty_coefficients[road[0]]["Small Truck"]
+                        * current_edge_length
+                    )
                     graph.add_edge(
                         current_edge_start["id"],
                         row["id"],
-                        weight=current_edge_weight,
+                        length=current_edge_length,
                         shutdown_probability=get_edge_shutdown_probability(
                             current_edge_bridge_conditions
                         ),
-                        traffic=max(current_edge_traffic, key=current_edge_traffic.get),
+                        heavy_truck_traffic=max(
+                            current_edge_traffic["Heavy Truck"],
+                            key=current_edge_traffic["Heavy Truck"].get,
+                        ),
+                        medium_truck_traffic=max(
+                            current_edge_traffic["Medium Truck"],
+                            key=current_edge_traffic["Medium Truck"].get,
+                        ),
+                        small_truck_traffic=max(
+                            current_edge_traffic["Small Truck"],
+                            key=current_edge_traffic["Small Truck"].get,
+                        ),
+                        heavy_truck_weight=heavy_truck_weight,
+                        medium_truck_weight=medium_truck_weight,
+                        small_truck_weight=small_truck_weight,
                     )
                 current_edge_start = {"road": row["road"], "id": row["id"]}
-                current_edge_weight = 0
+                current_edge_length = 0
                 current_edge_bridge_conditions = {0: 0, 1: 0, 2: 0, 3: 0}
-                current_edge_traffic = {0: 0}
+                current_edge_traffic = {
+                    "Heavy Truck": {0: 0},
+                    "Medium Truck": {0: 0},
+                    "Small Truck": {0: 0},
+                }
 
             elif model_type == "bridge":
-                current_edge_weight += row["length"]
+                current_edge_length += row["length"]
                 current_edge_bridge_conditions[row["condition"]] += 1
-                if row["(AADT)"] in current_edge_traffic:
-                    current_edge_traffic[row["(AADT)"]] += 1
-                else:
-                    current_edge_traffic[row["(AADT)"]] = 0
+                for truck_type in ["Heavy Truck", "Medium Truck", "Small Truck"]:
+                    if row[truck_type] in current_edge_traffic[truck_type]:
+                        current_edge_traffic[truck_type][row[truck_type]] += 1
+                    else:
+                        current_edge_traffic[truck_type][row[truck_type]] = 1
 
             elif model_type == "link":
-                current_edge_weight += row["length"]
-                if row["(AADT)"] in current_edge_traffic:
-                    current_edge_traffic[row["(AADT)"]] += 1
-                else:
-                    current_edge_traffic[row["(AADT)"]] = 0
+                current_edge_length += row["length"]
+                for truck_type in ["Heavy Truck", "Medium Truck", "Small Truck"]:
+                    if row[truck_type] in current_edge_traffic[truck_type]:
+                        current_edge_traffic[truck_type][row[truck_type]] += 1
+                    else:
+                        current_edge_traffic[truck_type][row[truck_type]] = 1
 
             elif model_type == "intersection":
                 # Intersection elements are stored in multiple roads, it is necessary to check wether it is already in the graph or not.
@@ -160,25 +270,55 @@ def generate_graph():
 
                 # We add a node corresponding to the element and link it to the previous node if they are on the same road
                 if current_edge_start["road"] == row["road"]:
+                    heavy_truck_weight = (
+                        reroute_penalty_coefficients[road[0]]["Heavy Truck"]
+                        * current_edge_length
+                    )
+                    medium_truck_weight = (
+                        reroute_penalty_coefficients[road[0]]["Medium Truck"]
+                        * current_edge_length
+                    )
+                    small_truck_weight = (
+                        reroute_penalty_coefficients[road[0]]["Small Truck"]
+                        * current_edge_length
+                    )
                     graph.add_edge(
                         current_edge_start["id"],
                         row["id"],
-                        weight=current_edge_weight,
+                        length=current_edge_length,
                         shutdown_probability=get_edge_shutdown_probability(
                             current_edge_bridge_conditions
                         ),
-                        traffic=max(current_edge_traffic, key=current_edge_traffic.get),
+                        heavy_truck_traffic=max(
+                            current_edge_traffic["Heavy Truck"],
+                            key=current_edge_traffic["Heavy Truck"].get,
+                        ),
+                        medium_truck_traffic=max(
+                            current_edge_traffic["Medium Truck"],
+                            key=current_edge_traffic["Medium Truck"].get,
+                        ),
+                        small_truck_traffic=max(
+                            current_edge_traffic["Small Truck"],
+                            key=current_edge_traffic["Small Truck"].get,
+                        ),
+                        heavy_truck_weight=heavy_truck_weight,
+                        medium_truck_weight=medium_truck_weight,
+                        small_truck_weight=small_truck_weight,
                     )
                 current_edge_start = {"road": row["road"], "id": row["id"]}
-                current_edge_weight = 0
+                current_edge_length = 0
                 current_edge_bridge_conditions = {0: 0, 1: 0, 2: 0, 3: 0}
-                current_edge_traffic = {0: 0}
+                current_edge_traffic = {
+                    "Heavy Truck": {0: 0},
+                    "Medium Truck": {0: 0},
+                    "Small Truck": {0: 0},
+                }
 
-    print("delta", time.time() - start)
-    # graph = prune_graph(graph, "weight")
-    print(
-        list(nx.connected_components(graph)), len(list(nx.connected_components(graph)))
-    )
+    print("elapsed time :", time.time() - start, "seconds")
+    # graph = prune_graph(graph, "length")
+    # print(
+    #     list(nx.connected_components(graph)), len(list(nx.connected_components(graph)))
+    # )
     return graph
 
 
@@ -189,7 +329,8 @@ def get_edge_shutdown_probability(dict):
     return 1 - working_edge_probability
 
 
-def prune_graph(graph, weight_attr="weight", prob_attr="shutdown_probability"):
+# Remove nodes of degree 2 for increased clarity
+def prune_graph(graph, weight_attr="length", prob_attr="shutdown_probability"):
     # We iterate until no more degree-2 nodes exist
     changed = True
     while changed:
@@ -251,10 +392,10 @@ def draw_graph(graph):
     edges = list(graph.edges(data=True))
     probs = np.array([d.get("shutdown_probability", 0) for _, _, d in edges])
 
-    traffic = np.array([d.get("traffic", 1) for _, _, d in edges])
+    traffic = np.array([d.get("heavy_truck_traffic", 1) for _, _, d in edges])
     traffic_safe = np.clip(traffic, 1e-3, None)
     log_t = np.log2(traffic_safe)
-    log_min, log_max = log_t.min(), log_t.max()
+    log_min, log_max = np.nanmin(log_t), np.nanmax(log_t)
     traffic_scaled = (log_t - log_min) / (log_max - log_min + 1e-9)
     widths = 0.1 + traffic_scaled * 4
 
@@ -314,42 +455,40 @@ def draw_graph(graph):
     return
 
 
-def get_alternative_paths(graph):
+# Computes the economical impact of breaking down for every edge in the graph
+def get_edges_criticality(graph):
     edges_list = graph.edges()
     alternative_paths = {}
     for edge in edges_list:
         edge_attributes = graph.edges[edge]
         graph.remove_edge(*edge)
-        if nx.has_path(graph, edge[0], edge[1]):
-            shortest_path = nx.shortest_path(graph, edge[0], edge[1], weight="weight")
-            path_length = 0
-            for i in range(len(shortest_path) - 1):
-                path_length += graph.edges[(shortest_path[i], shortest_path[i + 1])][
-                    "weight"
-                ]
-                alternative_paths[edge] = path_length - edge_attributes["weight"]
-            print(path_length, edge_attributes["weight"], edge)
+        for weight_type in [
+            "heavy_truck_weight",
+            "medium_truck_weight",
+            "small_truck_weight",
+        ]:
+            if nx.has_path(graph, edge[0], edge[1]):
+                shortest_path = nx.shortest_path(
+                    graph, edge[0], edge[1], weight="length"
+                )
+                path_length = 0
+                for i in range(len(shortest_path) - 1):
+                    path_length += graph.edges[
+                        (shortest_path[i], shortest_path[i + 1])
+                    ]["length"]
+                    alternative_paths[edge] = path_length - edge_attributes["length"]
+                print(path_length, edge_attributes["length"], edge)
         else:
             alternative_paths[edge] = None
         graph.add_edge(edge[0], edge[1], **edge_attributes)
-    print(
-        sum(v for v in alternative_paths.values() if v is not None)
-        / sum(1 for v in alternative_paths.values() if v is not None)
-    )
+    # print(
+    #     sum(v for v in alternative_paths.values() if v is not None)
+    #     / sum(1 for v in alternative_paths.values() if v is not None)
+    # )
     return
 
 
-# check if the graph is connected (for debugging)
-# def check_is_graph_connected(graph):
-#     n1_start = 1000000
-#     for source in sources:
-#         if not nx.has_path(graph, source, n1_start):
-#             print(
-#                 f"The {graph.nodes[source].get('road')} is not connected to the N1 road"
-#             )
-#             continue
-
 graph = generate_graph()
-get_alternative_paths(graph)
+# get_edges_criticality(graph)
 draw_graph(graph)
 # EOF -----------------------------------------------------------
