@@ -1,3 +1,4 @@
+import math
 import os
 import time
 from operator import is_not
@@ -65,12 +66,6 @@ def generate_graph():
             model_type = row["model_type"].strip()
 
             name = row["name"]
-            traffic_weight = (
-                25 * row["Heavy Truck"]
-                + 10 * row["Medium Truck"]
-                + 5 * row["Small Truck"]
-            )
-            traffic_weight = row["Small Truck"]
             if pd.isna(name):
                 name = ""
             else:
@@ -101,6 +96,8 @@ def generate_graph():
                     graph.add_edge(
                         current_edge_start["id"],
                         row["id"],
+                        road=row["road"],
+                        ids=(current_edge_start["id"], row["id"]),
                         length=current_edge_length,
                         shutdown_probability=get_edge_shutdown_probability(
                             current_edge_bridge_conditions
@@ -155,6 +152,8 @@ def generate_graph():
                     graph.add_edge(
                         current_edge_start["id"],
                         row["id"],
+                        road=row["road"],
+                        ids=(current_edge_start["id"], row["id"]),
                         length=current_edge_length,
                         shutdown_probability=get_edge_shutdown_probability(
                             current_edge_bridge_conditions
@@ -209,6 +208,8 @@ def generate_graph():
                     graph.add_edge(
                         current_edge_start["id"],
                         row["id"],
+                        road=row["road"],
+                        ids=(current_edge_start["id"], row["id"]),
                         length=current_edge_length,
                         shutdown_probability=get_edge_shutdown_probability(
                             current_edge_bridge_conditions
@@ -285,6 +286,8 @@ def generate_graph():
                     graph.add_edge(
                         current_edge_start["id"],
                         row["id"],
+                        road=row["road"],
+                        ids=(current_edge_start["id"], row["id"]),
                         length=current_edge_length,
                         shutdown_probability=get_edge_shutdown_probability(
                             current_edge_bridge_conditions
@@ -392,7 +395,15 @@ def draw_graph(graph):
     edges = list(graph.edges(data=True))
     probs = np.array([d.get("shutdown_probability", 0) for _, _, d in edges])
 
-    traffic = np.array([d.get("heavy_truck_traffic", 1) for _, _, d in edges])
+    traffic = np.array(
+        [
+            25 * d.get("heavy_truck_traffic", 1)
+            + 10 * d.get("medium_truck_traffic", 1)
+            + 5 * d.get("small_truck_traffic", 1)
+            for _, _, d in edges
+        ]
+    )
+
     traffic_safe = np.clip(traffic, 1e-3, None)
     log_t = np.log2(traffic_safe)
     log_min, log_max = np.nanmin(log_t), np.nanmax(log_t)
@@ -457,38 +468,82 @@ def draw_graph(graph):
 
 # Computes the economical impact of breaking down for every edge in the graph
 def get_edges_criticality(graph):
+
+    trucks_tonnage = {"Heavy Truck": 25, "Medium Truck": 10, "Small Truck": 5}
+
     edges_list = graph.edges()
-    alternative_paths = {}
+    # We compute the metric for every edge in the graph
+    edge_penalties = []
+    indexes_of_blockages = []
+    counter = 0
     for edge in edges_list:
         edge_attributes = graph.edges[edge]
+        # After copying the edge attributes for safekeeping, we remove the edge to evaluate the alternative paths
         graph.remove_edge(*edge)
-        for weight_type in [
-            "heavy_truck_weight",
-            "medium_truck_weight",
-            "small_truck_weight",
-        ]:
-            if nx.has_path(graph, edge[0], edge[1]):
+        edge_penalty = 0
+        if nx.has_path(graph, edge[0], edge[1]):
+            for truck_type, traffic_type, weight_type in [
+                ("Heavy Truck", "heavy_truck_traffic", "heavy_truck_weight"),
+                ("Medium Truck", "medium_truck_traffic", "medium_truck_weight"),
+                ("Small Truck", "small_truck_traffic", "small_truck_weight"),
+            ]:
                 shortest_path = nx.shortest_path(
-                    graph, edge[0], edge[1], weight="length"
+                    graph, edge[0], edge[1], weight=weight_type
                 )
                 path_length = 0
                 for i in range(len(shortest_path) - 1):
                     path_length += graph.edges[
                         (shortest_path[i], shortest_path[i + 1])
-                    ]["length"]
-                    alternative_paths[edge] = path_length - edge_attributes["length"]
-                print(path_length, edge_attributes["length"], edge)
+                    ][weight_type]
+                detour = path_length - edge_attributes["length"]
+                edge_penalty += (
+                    detour
+                    * edge_attributes[traffic_type]
+                    * trucks_tonnage[truck_type]
+                    / 48
+                )
+            edge_penalties.append((edge_penalty, edge_attributes))
         else:
-            alternative_paths[edge] = None
+            indexes_of_blockages.append(counter)
+            counter += 1
+            tonnage_blocked = 0
+            for truck_type, traffic_type, weight_type in [
+                ("Heavy Truck", "heavy_truck_traffic", "heavy_truck_weight"),
+                ("Medium Truck", "medium_truck_traffic", "medium_truck_weight"),
+                ("Small Truck", "small_truck_traffic", "small_truck_weight"),
+            ]:
+                if not math.isnan(edge_attributes[traffic_type]):
+                    tonnage_blocked += (
+                        edge_attributes[traffic_type] * trucks_tonnage[truck_type]
+                    )
+            edge_penalties.append((tonnage_blocked, edge_attributes))
+
         graph.add_edge(edge[0], edge[1], **edge_attributes)
-    # print(
-    #     sum(v for v in alternative_paths.values() if v is not None)
-    #     / sum(1 for v in alternative_paths.values() if v is not None)
-    # )
-    return
+    return edge_penalties, indexes_of_blockages
+
+
+def get_expected_tonnage_delay(graph, delta_time_hours):
+    penalties, indexes = get_edges_criticality(graph)
+    for i in range(len(penalties)):
+        if i in indexes:
+            penalties[i] = (
+                penalties[i][0]
+                * delta_time_hours
+                * penalties[i][1]["shutdown_probability"],
+                penalties[i][1],
+            )
+        else:
+            penalties[i] = (
+                penalties[i][0] * penalties[i][1]["shutdown_probability"],
+                penalties[i][1],
+            )
+    return penalties
 
 
 graph = generate_graph()
 # get_edges_criticality(graph)
 draw_graph(graph)
+penalties = get_expected_tonnage_delay(graph, 24 * 2)
+penalties.sort(key=lambda tup: tup[0], reverse=True)
+print(penalties[:10])
 # EOF -----------------------------------------------------------
