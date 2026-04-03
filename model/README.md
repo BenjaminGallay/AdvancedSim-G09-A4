@@ -1,8 +1,4 @@
 ## Files
 
-- the ```/model/ContinuousSpace/``` folder contains code for the visualisation of the simulation. It has not been modified for our work
-- ```/model/A2 model_viz.py``` file launches the simulation visualisation. It has not been significantly modified by us since most of the simulation work is done without visualisation.
-- the ```/model/components.py``` file contains the code relative to the individual components of teh simulation : bridges, links, trucks, sources, sinks... It has been modified to take into account the delays caused by the possibility of the bridges breaking, and the probability of these to do so, as a function of their condition. This program also calls the ```/model/statistical_recorder.py``` program to extract information from the simulation.
-- the ```/model/statistical_recorder.py``` and ```/model/analytical_recorder.py``` programs record information from the simulation, write it to the experiments files, and return it to ```/model/model_run.py``` to output in the console. The ```/model/statistical_recorder.py``` program corresponds to the simulation work asked in the assignment, wheras the ```/model/analytical_recorder.py``` takes an analytical approach, and computes the delay times mathematically.
-- the ```/model/model.py``` file builds the simulation model from the ```/data/N1road.csv``` file. It calls the ```/model/statistical_recorder.py``` program to compute the expected value of the time delay for each bridge.
-- ```/model/model_run.py``` is the file to run to start the simulation. Check the console for instructions. Results from the simulation is ouput in the console as well.
+- the ```/model/model.py``` file builds the graph of the network of main roads from the ```/data/roads.csv``` file. It also contains code for its analysis and display.
+- ```/model/main.py``` is the file to run to start the graph analysis. Check the console for instructions. Results from the simulation is ouput in the console as well.

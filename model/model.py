@@ -14,16 +14,12 @@ file_name = os.path.join(BASE_DIR, "data", "roads.csv")
 speed = 48 * 1000 / 60
 
 
+# Generates the road network graph from the roads.csv file in the /data/ folder
 def generate_graph():
     start = time.time()
-    """
-    generate the simulation model according to the csv file component information
-
-    Warning: the labels are the same as the csv column labels
-    """
     df = pd.read_csv(file_name)
 
-    # a list of names of roads to be generated
+    # Different groups of roads to run the analysis on/debug on
     all_roads = df["road"].unique().tolist()
     n_roads = [road for road in all_roads if road[0] == "N"]
     n12_roads = [road for road in all_roads if road[:2] == "N1"] + [
@@ -33,6 +29,7 @@ def generate_graph():
     z_roads = [road for road in all_roads if road[0] == "Z"]
     graph = nx.Graph()
 
+    # These are the penalty coefficients for rerouting trucks (mainly large trucks) on small roads such as Z and R roads. These are explained in the report
     reroute_penalty_coefficients = {
         "N": {"Heavy Truck": 1, "Medium Truck": 1, "Small Truck": 1},
         "R": {"Heavy Truck": 5, "Medium Truck": 1, "Small Truck": 1},
@@ -60,9 +57,9 @@ def generate_graph():
         "Small Truck": {0: 0},
     }
 
+    # Loops over all the elements in the road from the roads.csv file
     for df in df_objects_all:
         for _, row in df.iterrows():  # index, row in ...
-            # create agents according to model_type
             model_type = row["model_type"].strip()
 
             name = row["name"]
@@ -81,6 +78,7 @@ def generate_graph():
                     lon=row["lon"],
                 )
                 if current_edge_start["road"] == row["road"]:
+                    # Computes the coefficients when rerouting trucks through the current edge
                     heavy_truck_weight = (
                         reroute_penalty_coefficients[road[0]]["Heavy Truck"]
                         * current_edge_length
@@ -93,6 +91,7 @@ def generate_graph():
                         reroute_penalty_coefficients[road[0]]["Small Truck"]
                         * current_edge_length
                     )
+                    # Adds the edge to the graph with all the attributes
                     graph.add_edge(
                         current_edge_start["id"],
                         row["id"],
@@ -118,6 +117,7 @@ def generate_graph():
                         medium_truck_weight=medium_truck_weight,
                         small_truck_weight=small_truck_weight,
                     )
+                # We reset the variables keeping track of the current edge we are studying
                 current_edge_start = {"road": row["road"], "id": row["id"]}
                 current_edge_length = 0
                 current_edge_bridge_conditions = {0: 0, 1: 0, 2: 0, 3: 0}
@@ -243,6 +243,7 @@ def generate_graph():
                 current_edge_length += row["length"]
                 current_edge_bridge_conditions[row["condition"]] += 1
                 for truck_type in ["Heavy Truck", "Medium Truck", "Small Truck"]:
+                    # Stores the traffic values on this bridge to be stored in the edges of the graphs
                     if row[truck_type] in current_edge_traffic[truck_type]:
                         current_edge_traffic[truck_type][row[truck_type]] += 1
                     else:
@@ -251,6 +252,7 @@ def generate_graph():
             elif model_type == "link":
                 current_edge_length += row["length"]
                 for truck_type in ["Heavy Truck", "Medium Truck", "Small Truck"]:
+                    # Stores the traffic values on this link to be stored in the edges of the graphs
                     if row[truck_type] in current_edge_traffic[truck_type]:
                         current_edge_traffic[truck_type][row[truck_type]] += 1
                     else:
@@ -318,53 +320,15 @@ def generate_graph():
                 }
 
     print("elapsed time :", time.time() - start, "seconds")
-    # graph = prune_graph(graph, "length")
-    # print(
-    #     list(nx.connected_components(graph)), len(list(nx.connected_components(graph)))
-    # )
     return graph
 
 
+# Given a dict storing the amount of bridges of each condition, returns the probability of at least one of them failing (which means that the edge is shutdown)
 def get_edge_shutdown_probability(dict):
     working_edge_probability = 1
     for i in dict:
         working_edge_probability *= (1 - ((1 / 10) ** (4 - i))) ** dict[i]
     return 1 - working_edge_probability
-
-
-# Remove nodes of degree 2 for increased clarity
-def prune_graph(graph, weight_attr="length", prob_attr="shutdown_probability"):
-    # We iterate until no more degree-2 nodes exist
-    changed = True
-    while changed:
-        changed = False
-        for node in list(graph.nodes()):
-            if graph.degree(node) != 2:
-                continue
-
-            neighbors = list(graph.neighbors(node))
-            u, v = neighbors
-
-            # graphet weights (default = 1 if missing)
-            w1 = graph[node][u].get(weight_attr, 1)
-            w2 = graph[node][v].get(weight_attr, 1)
-            new_weight = w1 + w2
-
-            p1 = graph[node][u].get(prob_attr, 1)
-            p2 = graph[node][v].get(prob_attr, 1)
-            new_prob = 1 - ((1 - p1) * (1 - p2))
-
-            # If edge already exists, sum weights
-            if graph.has_edge(u, v):
-                existing_weight = graph[u][v].get(weight_attr, 1)
-                graph[u][v][weight_attr] = existing_weight + new_weight
-            else:
-                graph.add_edge(u, v, **{weight_attr: new_weight, prob_attr: new_prob})
-
-            graph.remove_node(node)
-            changed = True
-            break  # restart iteration (graph changed)
-    return graph
 
 
 # draws the graph of the road network
@@ -395,6 +359,7 @@ def draw_graph(graph):
     edges = list(graph.edges(data=True))
     probs = np.array([d.get("shutdown_probability", 0) for _, _, d in edges])
 
+    # Approximates the number of tons that passes through the edge
     traffic = np.array(
         [
             25 * d.get("heavy_truck_traffic", 1)
@@ -409,16 +374,6 @@ def draw_graph(graph):
     log_min, log_max = np.nanmin(log_t), np.nanmax(log_t)
     traffic_scaled = (log_t - log_min) / (log_max - log_min + 1e-9)
     widths = 0.1 + traffic_scaled * 4
-
-    # plt.hist(
-    #     [np.log10(prob) for prob in probs if prob > 0],
-    #     color="green",
-    #     edgecolor="black",
-    #     bins=10,
-    # )
-    # plt.title("Histogram of shutdown probabilities")
-    # plt.show()
-    # print([float(np.log10(prob)) for prob in probs])
 
     # --- LOG SCALING ---
     eps = 1e-3
@@ -466,9 +421,10 @@ def draw_graph(graph):
     return
 
 
-# Computes the economical impact of breaking down for every edge in the graph
+# Computes the economical impact of shutting down for every edge in the graph
 def get_edges_criticality(graph):
 
+    # Number of tons each type of truck can transport
     trucks_tonnage = {"Heavy Truck": 25, "Medium Truck": 10, "Small Truck": 5}
 
     edges_list = graph.edges()
@@ -487,6 +443,7 @@ def get_edges_criticality(graph):
                 ("Medium Truck", "medium_truck_traffic", "medium_truck_weight"),
                 ("Small Truck", "small_truck_traffic", "small_truck_weight"),
             ]:
+                # We compute the shortest path, taking into account the time cost of rerouting big trucks into small roads
                 shortest_path = nx.shortest_path(
                     graph, edge[0], edge[1], weight=weight_type
                 )
@@ -518,10 +475,12 @@ def get_edges_criticality(graph):
                     )
             edge_penalties.append((tonnage_blocked, edge_attributes))
 
+        # We add teh edge back to continue the graph analysis on another one
         graph.add_edge(edge[0], edge[1], **edge_attributes)
     return edge_penalties, indexes_of_blockages
 
 
+# Return the expected value of the delays (in tons*hours) by multiplying the shutdown probability and the delay of goods it would cause
 def get_expected_tonnage_delay(graph, delta_time_hours):
     penalties, indexes = get_edges_criticality(graph)
     for i in range(len(penalties)):
@@ -540,10 +499,4 @@ def get_expected_tonnage_delay(graph, delta_time_hours):
     return penalties
 
 
-graph = generate_graph()
-# get_edges_criticality(graph)
-draw_graph(graph)
-penalties = get_expected_tonnage_delay(graph, 24 * 2)
-penalties.sort(key=lambda tup: tup[0], reverse=True)
-print(penalties[:10])
 # EOF -----------------------------------------------------------
